@@ -1,0 +1,16 @@
+domain_name: "abin9.flexicloudhosting.com"
+
+#System Settings
+php_modules: [ 'php-curl', 'php-gd', 'php-mbstring', 'php-xml', 'php-xmlrpc', 'php-soap', 'php-intl', 'php-zip' ]
+
+#MySQL Settings
+mysql_root_password: "password"
+mysql_db: "wordpress_db"
+mysql_user: "admin"
+mysql_password: "H@y%@oop$&123"
+
+#HTTP Settings
+http_host: "abin9.flexicloudhosting.com"
+http_conf: "abin9.flexicloudhosting.conf"
+http_port: "80"
+letsencrypt_email: "avinash@flexicloudhosting.com"
