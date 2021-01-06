@@ -1,0 +1,307 @@
+---
+- hosts: localhost
+  connection: local
+  #vars_files:
+  #  - vars/ip.yml
+  tasks:
+    - name: Create started inventory containers
+      lxd_container:
+        name: "{{ item }}"
+        state: started
+        source: 
+          type: image
+          mode: pull
+          server: https://images.linuxcontainers.org
+          protocol: lxd
+          #alias: ubuntu/xenial/amd64
+          alias: ubuntu/bionic/amd64
+        profiles: ['default']
+        wait_for_ipv4_addresses: true
+        timeout: 6000
+      with_inventory_hostnames:
+      - containers
+    
+        # devices:
+        # configure network interface
+        #eth0:
+        #  type: nic
+        #  nictype: bridged
+        #  parent: lxdbr0
+        #  # get ip address from inventory
+        #  ipv4.address: "{{ ip_address }}"
+        #  with_inventory_hostnames:
+        #  - containers
+
+    - name: Add Python 2
+      delegate_to: "{{ item }}"
+      raw: test -e /usr/bin/python || (apt update && apt install -y python)
+      with_inventory_hostnames:
+      - containers
+
+    - name: Install openssh
+      delegate_to: "{{ item }}"
+      raw: apt update && apt install -y ssh
+      with_inventory_hostnames:
+      - containers
+
+    - name: Add authorized keys
+      delegate_to: "{{ item }}"
+      authorized_key:
+        user: root
+        state: present
+        key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}" 
+      with_inventory_hostnames:
+      - containers
+
+        # - name: stop contianer
+        #shell: "lxc stop {{ item }}"
+        #with_inventory_hostnames:
+        #- containers
+
+        #- name: lxc attach
+        # shell: "lxc network attach lxdbr0 {{ item }} eth0 eth0"
+        #with_inventory_hostnames:
+        #- containers
+
+
+        # - name: lxc config ip
+        #shell: "lxc config device set {{ item }} eth0 ipv4.address {{ ip_addr }}"
+        #with_inventory_hostnames:
+        # - containers
+
+        #- name: start container
+        # shell: "lxc start {{ item }}"
+        # with_inventory_hostnames:
+        #- containers
+
+
+- hosts: servers
+  connection: local
+
+  tasks:
+    - name: iptable_add
+      command: sudo iptables -t nat -I PREROUTING -i eth0 -p TCP -d 95.216.204.31/32 --dport 80 -j DNAT --to-destination "{{ ansible_host }}":80
+
+
+- hosts: servers
+  become: true
+  vars_files:
+    - vars/default.yml
+  pre_tasks:
+    - raw: apt-get install -y python-simplejson
+
+  tasks:
+    - name: Upgrade system
+      apt: upgrade=dist update_cache=yes
+     
+     
+      
+    - name: Install Prerequisites
+      apt: name={{ item }} update_cache=yes state=latest force_apt_get=yes
+      loop: [ 'aptitude' ]
+
+
+    - name: Install LEMP Packages
+      apt: name={{ item }} update_cache=yes state=latest
+      loop: [ 'nginx', 'mysql-server','python3-dev','mysql-client','python3-mysqldb', 'python3-pymysql', 'python-dev','libmysqlclient-dev','python-mysqldb','php-fpm', 'php-mysql','software-properties-common','ufw' ]
+
+    - name: Add certbot repository.
+      apt_repository:
+        repo="ppa:certbot/certbot"
+        update_cache=yes
+
+    - name: Install CertBot
+      apt:
+        name: python3-certbot-nginx
+        state: present
+
+
+    - name: "Add repository for PHP 7.0."
+      apt_repository: 
+        repo="ppa:ondrej/php" 
+        update_cache=yes
+
+    - name: Php installation version_7.3 and 7.4 php-fpm
+      apt: 
+         name:
+          - php7.3-fpm
+          - php7.3-cli
+          - php7.3-mysql
+          - php7.3-gd
+          - php7.3-imagick
+          - php7.3-recode
+          - php7.3-tidy
+          - php7.3-xmlrpc
+          - php7.4-fpm
+          - php7.4
+          - php
+          - php-cli
+          - php-fpm
+          - php-json
+          - php-common
+          - php-mysql
+          - php-zip
+          - php-gd
+          - php-mbstring
+          - php-curl
+          - php-xml
+          - php-pear
+          - php-bcmath
+          
+          
+
+# MySQL Configuration
+    - name: Sets the root password 
+      mysql_user: 
+        name: root 
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Removes all anonymous user accounts
+      mysql_user:
+        name: ''
+        host_all: yes
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Removes the MySQL test database
+      mysql_db: 
+        name: test 
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+
+    - name: Creates database for WordPress
+      mysql_db:
+        name: "{{ mysql_db }}"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      tags: [ mysql ]
+
+    - name: Create MySQL user for WordPress
+      mysql_user:
+        name: "{{ mysql_user }}"
+        password: "{{ mysql_password }}"
+        priv: "{{ mysql_db }}.*:ALL"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      tags: [ mysql ]
+
+# UFW Configuration
+    - name: "UFW - Allow HTTP on port {{ http_port }}"
+      ufw:
+        rule: allow
+        port: "{{ http_port }}"
+        proto: tcp
+
+# Sets Up PHP Info Page
+    - name: Sets Up PHP Info Page
+      template:
+        src: "files/info.php.j2"
+        dest: "/var/www/html/info.php"
+
+
+    - name: Creates directory
+      file:
+        path: "/var/www/{{ http_host }}"
+        state: directory
+
+          # tasks file for wp-install-config
+    - name: Create directory to download WordPress
+      command: mkdir -p /opt/source/wordpress
+
+    - name: Download WordPress
+      get_url: url=https://www.wordpress.org/latest.tar.gz dest=/opt/source/wordpress/wordpress.tar.gz validate_certs=no
+
+    - name: Extract WordPress
+      command: "tar xzf /opt/source/wordpress/wordpress.tar.gz -C /var/www/{{ http_host }} --strip-components 1"
+
+
+
+    - name: Set ownership
+      file:
+        path: "/var/www/{{ http_host }}"
+        state: directory
+        recurse: yes
+        owner: www-data
+        group: www-data
+      tags: [ wordpress ]
+
+    - name: Set permissions for directories
+      shell: "/usr/bin/find /var/www/{{ http_host }}/ -type d -exec chmod 750 {} \\;"
+      tags: [ wordpress ]
+
+    - name: Set permissions for files
+      shell: "/usr/bin/find /var/www/{{ http_host }}/ -type f -exec chmod 640 {} \\;"
+      tags: [ wordpress ]
+
+    - name: Set up wp-config
+      template:
+        src: "files/wp-config.php.j2"
+        dest: "/var/www/{{ http_host }}/wp-config.php"
+      tags: [ wordpress ]
+        
+    - name:  change_file_permissions_wp-config
+      file:
+        path: "/var/www/{{ http_host }}/wp-config.php"
+        state: file
+        owner: www-data
+        group: www-data
+        mode: "0644"
+
+
+    - name: Install nginx
+      apt: name=nginx state=latest
+
+    - name: install letsencrypt
+      apt: name=letsencrypt state=latest
+
+    - name: create letsencrypt directory
+      file: name=/var/www/letsencrypt state=directory
+
+    - name: Remove default nginx config
+      file: name=/etc/nginx/sites-enabled/default state=absent
+
+
+    - name: Install system nginx config
+      template:
+        src: "files/nginx.conf.j2"
+        dest: "/etc/nginx/nginx.conf"
+
+    - name: Install nginx site for letsencrypt requests
+      template:
+        src: "files/nginx-http.j2"
+        dest: "/etc/nginx/sites-enabled/{{ http_conf }}"
+    
+    - name: Reload nginx to activate letsencrypt site
+      service: name=nginx state=restarted
+
+    - name: Create letsencrypt certificate
+      shell: letsencrypt certonly -n --webroot -w /var/www/letsencrypt -m {{ letsencrypt_email }} --agree-tos -d {{ domain_name }}
+      args:
+        creates: /etc/letsencrypt/live/{{ domain_name }}
+
+    - name: Generate dhparams
+      shell: openssl dhparam -out /etc/nginx/dhparams.pem 2048
+      args:
+        creates: /etc/nginx/dhparams.pem
+
+    - name: Install nginx site for specified site
+      template:
+        src: "files/nginx-le.j2"
+        dest: "/etc/nginx/sites-enabled/{{ domain_name }}"
+
+    - name: Reload nginx to activate specified site
+      service: name=nginx state=restarted
+
+    - name: Add letsencrypt cronjob for cert renewal
+      cron:
+        name: letsencrypt_renewal
+        special_time: weekly
+        job: letsencrypt --renew certonly -n --webroot -w /var/www/letsencrypt -m {{ letsencrypt_email }} --agree-tos -d {{ domain_name }} && service nginx reload
+
+
