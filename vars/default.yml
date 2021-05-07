@@ -1,4 +1,4 @@
-domain_name: "abin9.flexicloudhosting.com"
+domain_name: "avi.flexicloudhosting.com"
 
 #System Settings
 php_modules: [ 'php-curl', 'php-gd', 'php-mbstring', 'php-xml', 'php-xmlrpc', 'php-soap', 'php-intl', 'php-zip' ]
@@ -10,7 +10,7 @@ mysql_user: "admin"
 mysql_password: "H@y%@oop$&123"
 
 #HTTP Settings
-http_host: "abin9.flexicloudhosting.com"
-http_conf: "abin9.flexicloudhosting.conf"
+http_host: "avi.flexicloudhosting.com"
+http_conf: "avi.flexicloudhosting.conf"
 http_port: "80"
 letsencrypt_email: "avinash@flexicloudhosting.com"
